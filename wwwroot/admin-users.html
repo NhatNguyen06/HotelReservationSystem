@@ -1,0 +1,132 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý người dùng</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="navbar"></div>
+    <div class="container">
+        <h3>Quản lý người dùng</h3>
+        <div id="alertBox"></div>
+
+        <div class="card card-body mb-4">
+            <h6 id="formTitle">Thêm tài khoản</h6>
+            <input type="hidden" id="editId">
+            <div class="row g-2">
+                <div class="col-md-3"><input id="fullName" class="form-control" placeholder="Họ tên"></div>
+                <div class="col-md-3"><input id="email" class="form-control" placeholder="Email"></div>
+                <div class="col-md-2"><input id="phone" class="form-control" placeholder="Số điện thoại"></div>
+                <div class="col-md-2" id="passwordCol"><input id="password" type="password" class="form-control" placeholder="Mật khẩu"></div>
+                <div class="col-md-2">
+                    <select id="role" class="form-select">
+                        <option>Customer</option>
+                        <option>Staff</option>
+                        <option>Manager</option>
+                        <option>Admin</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-3">
+                <button class="btn btn-primary" onclick="saveUser()">Lưu</button>
+                <button class="btn btn-outline-secondary" onclick="resetForm()">Hủy</button>
+            </div>
+        </div>
+
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-light">
+                <tr><th>Họ tên</th><th>Email</th><th>Điện thoại</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr>
+            </thead>
+            <tbody id="userTable"></tbody>
+        </table>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script>
+    // @ts-nocheck
+    renderNavbar();
+    let users = [];
+    const val = id => document.getElementById(id).value;
+
+    async function loadUsers() {
+        try {
+            users = await apiFetch('/api/users');
+            document.getElementById('userTable').innerHTML = users.map(u => `
+                <tr>
+                    <td>${esc(u.fullName)}</td>
+                    <td>${esc(u.email)}</td>
+                    <td>${esc(u.phone)}</td>
+                    <td>${esc(u.role)}</td>
+                    <td>${u.isLocked ? '<span class="badge bg-danger">Đã khóa</span>' : '<span class="badge bg-success">Hoạt động</span>'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editUser(${u.id})">Sửa</button>
+                        <button class="btn btn-sm btn-outline-${u.isLocked ? 'success' : 'danger'}"
+                                onclick="toggleLock(${u.id}, ${!u.isLocked})">${u.isLocked ? 'Mở khóa' : 'Khóa'}</button>
+                    </td>
+                </tr>`).join('');
+        } catch (e) {
+            showAlert(e.message, 'danger');
+        }
+    }
+
+    function editUser(id) {
+        const u = users.find(x => x.id === id);
+        document.getElementById('editId').value = id;
+        document.getElementById('fullName').value = u.fullName;
+        document.getElementById('email').value = u.email;
+        document.getElementById('phone').value = u.phone;
+        document.getElementById('role').value = u.role;
+        document.getElementById('passwordCol').style.display = 'none';   // sửa thì không đổi mật khẩu
+        document.getElementById('formTitle').textContent = 'Sửa tài khoản';
+        window.scrollTo(0, 0);
+    }
+
+    function resetForm() {
+        ['editId', 'fullName', 'email', 'phone', 'password'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('role').value = 'Customer';
+        document.getElementById('passwordCol').style.display = '';
+        document.getElementById('formTitle').textContent = 'Thêm tài khoản';
+    }
+
+    async function saveUser() {
+        const editId = val('editId');
+        try {
+            if (editId) {
+                await apiFetch(`/api/users/${editId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ fullName: val('fullName'), email: val('email'), phone: val('phone'), role: val('role') })
+                });
+                showAlert('Đã cập nhật tài khoản');
+            } else {
+                await apiFetch('/api/users', {
+                    method: 'POST',
+                    body: JSON.stringify({ fullName: val('fullName'), email: val('email'), phone: val('phone'), password: val('password'), role: val('role') })
+                });
+                showAlert('Đã thêm tài khoản');
+            }
+            resetForm();
+            loadUsers();
+        } catch (e) {
+            showAlert(e.message, 'danger');
+        }
+    }
+
+    async function toggleLock(id, lock) {
+        if (!confirm(lock ? 'Khóa tài khoản này?' : 'Mở khóa tài khoản này?')) return;
+        try {
+            await apiFetch(`/api/users/${id}/lock`, { method: 'PATCH', body: JSON.stringify({ isLocked: lock }) });
+            showAlert(lock ? 'Đã khóa tài khoản' : 'Đã mở khóa tài khoản');
+            loadUsers();
+        } catch (e) {
+            showAlert(e.message, 'danger');
+        }
+    }
+
+    if (requireRole(['Admin'])) loadUsers();
+    </script>
+</body>
+</html>

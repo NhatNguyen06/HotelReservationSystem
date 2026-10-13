@@ -1,0 +1,180 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thanh toán</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="navbar"></div>
+    <div class="container" style="max-width: 640px;">
+        <h3 class="mb-3">Thanh toán</h3>
+        <div id="alertBox"></div>
+        <div id="content"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script>
+    // @ts-nocheck
+    renderNavbar();
+
+    const reservationId = parseInt(new URLSearchParams(location.search).get('reservationId'));
+    const content = document.getElementById('content');
+    let reservation = null;
+    let payment = null;
+
+    const money = n => n.toLocaleString('vi-VN') + ' đ';
+
+    // ----- Bước 1: tóm tắt và chọn phương thức -----
+    async function loadReservation() {
+        try {
+            reservation = await apiFetch(`/api/reservations/${reservationId}`);
+            showSummary();
+        } catch (e) {
+            showAlert(e.message, 'danger');
+        }
+    }
+
+    function showSummary() {
+        const r = reservation;
+
+        if (r.status !== 'Pending') {
+            content.innerHTML = `<div class="alert alert-info">Booking <b>${esc(r.bookingCode)}</b> hiện không chờ thanh toán
+                (trạng thái: ${esc(r.status)}). <a href="/my-bookings.html">Xem booking của tôi</a></div>`;
+            return;
+        }
+        if (r.hasPendingPayment) {
+            content.innerHTML = `<div class="alert alert-warning">Giao dịch của booking <b>${esc(r.bookingCode)}</b> đang chờ kết quả
+                từ cổng thanh toán. Bạn <b>không cần thanh toán lại</b>. <a href="/my-bookings.html">Về booking của tôi</a></div>`;
+            return;
+        }
+
+        const holdUntil = new Date(r.holdExpiresAt).toLocaleTimeString('vi-VN');
+        content.innerHTML = `
+            <div class="card card-body">
+                <p class="mb-1">Mã đặt phòng: <b>${esc(r.bookingCode)}</b></p>
+                <p class="mb-1">${esc(r.roomTypeName)} - Phòng ${esc(r.roomNumber)}, ${esc(r.checkIn)} → ${esc(r.checkOut)} (${r.nights} đêm)</p>
+                <p class="mb-1">Số tiền cần thanh toán: <b class="fs-5">${money(r.totalCost)}</b></p>
+                <p class="text-danger small">Phòng được giữ đến ${holdUntil}</p>
+                <hr>
+                <label class="form-label">Phương thức thanh toán</label>
+                <select id="method" class="form-select mb-3">
+                    <option value="CreditCard">Thẻ tín dụng / ghi nợ</option>
+                    <option value="EWallet">Ví điện tử</option>
+                </select>
+                <div>
+                    <button class="btn btn-primary" onclick="startPayment()">Tiếp tục thanh toán</button>
+                    <a class="btn btn-outline-secondary" href="/my-bookings.html">Để sau</a>
+                </div>
+            </div>`;
+    }
+
+    // ----- Bước 2: tạo phiên, chuyển sang "cổng thanh toán" -----
+    async function startPayment() {
+        try {
+            payment = await apiFetch('/api/payments', {
+                method: 'POST',
+                body: JSON.stringify({ reservationId, method: document.getElementById('method').value })
+            });
+            document.getElementById('alertBox').innerHTML = '';
+            showGateway();
+        } catch (e) {
+            showAlert(e.message, 'danger');
+            loadReservation();
+        }
+    }
+
+    function showGateway() {
+        content.innerHTML = `
+            <div class="card border-primary">
+                <div class="card-header bg-primary text-white">Cổng thanh toán (giả lập)</div>
+                <div class="card-body">
+                    <p class="mb-1">Mã giao dịch: <b>${esc(payment.transactionCode)}</b></p>
+                    <p>Số tiền: <b class="fs-5">${money(payment.amount)}</b></p>
+                    <label class="form-label">Số thẻ / số ví</label>
+                    <input id="accountNumber" class="form-control mb-2" placeholder="Nhập 10 đến 19 chữ số" maxlength="19">
+                    <div class="form-text mb-3">
+                        Dùng để demo: <code>4111111111111111</code> thành công ·
+                        đuôi <code>0002</code> không đủ số dư · đuôi <code>0003</code> sai OTP · đuôi <code>0004</code> cổng không phản hồi
+                    </div>
+                    <button class="btn btn-success" id="confirmBtn" onclick="confirmPayment()">Xác nhận thanh toán</button>
+                    <button class="btn btn-outline-danger" id="cancelBtn" onclick="cancelPayment()">Hủy thanh toán</button>
+                </div>
+            </div>`;
+    }
+
+    // ----- Bước 3: gửi cho cổng thanh toán và xử lý kết quả -----
+    async function confirmPayment() {
+        const confirmBtn = document.getElementById('confirmBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        confirmBtn.disabled = true;
+        cancelBtn.disabled = true;
+        confirmBtn.textContent = 'Đang xử lý...';
+
+        try {
+            const p = await apiFetch(`/api/payments/${payment.id}/confirm`, {
+                method: 'POST',
+                body: JSON.stringify({ accountNumber: document.getElementById('accountNumber').value })
+            });
+            showResult(p);
+        } catch (e) {
+            showAlert(e.message, 'danger');
+            confirmBtn.disabled = false;
+            cancelBtn.disabled = false;
+            confirmBtn.textContent = 'Xác nhận thanh toán';
+        }
+    }
+
+    function showResult(p) {
+        document.getElementById('alertBox').innerHTML = '';
+
+        if (p.status === 'Paid') {
+            content.innerHTML = `
+                <div class="card card-body text-center">
+                    <h4 class="text-success">Thanh toán thành công!</h4>
+                    <p class="mb-1">Mã đặt phòng của bạn</p>
+                    <p class="display-6 fw-bold">${esc(p.bookingCode)}</p>
+                    <p>Số tiền đã thanh toán: <b>${money(p.amount)}</b><br>Mã giao dịch: ${esc(p.transactionCode)}</p>
+                    <a class="btn btn-primary" href="/my-bookings.html">Xem booking của tôi</a>
+                </div>`;
+        } else if (p.status === 'Failed') {
+            content.innerHTML = `
+                <div class="alert alert-danger">Thanh toán không thành công: <b>${esc(p.message)}</b></div>
+                <button class="btn btn-primary" onclick="loadReservation()">Thử lại hoặc chọn phương thức khác</button>`;
+        } else if (p.status === 'Pending') {
+            content.innerHTML = `
+                <div class="alert alert-warning">
+                    <b>Chưa xác định được kết quả thanh toán.</b><br>
+                    ${esc(p.message)} Hệ thống đã ghi nhận giao dịch <b>${esc(p.transactionCode)}</b> và sẽ đối soát với cổng thanh toán.
+                    Phòng vẫn được giữ cho bạn. <b>Bạn không cần thanh toán lại.</b>
+                </div>
+                <a class="btn btn-primary" href="/my-bookings.html">Về booking của tôi</a>`;
+        }
+    }
+
+    // ----- Khách hủy thanh toán (UC-007 A2) -----
+    async function cancelPayment() {
+        try {
+            await apiFetch(`/api/payments/${payment.id}/cancel`, { method: 'POST' });
+            content.innerHTML = `
+                <div class="alert alert-secondary">Bạn đã hủy thanh toán. Booking vẫn được giữ phòng cho đến khi hết hạn.</div>
+                <a class="btn btn-primary" href="/payment.html?reservationId=${reservationId}">Thanh toán lại</a>
+                <a class="btn btn-outline-secondary" href="/my-bookings.html">Về booking của tôi</a>`;
+        } catch (e) {
+            showAlert(e.message, 'danger');
+        }
+    }
+
+    if (requireRole(['Customer'])) {
+        if (!reservationId) {
+            content.innerHTML = '<div class="alert alert-warning">Thiếu thông tin booking. <a href="/my-bookings.html">Về booking của tôi</a></div>';
+        } else {
+            loadReservation();
+        }
+    }
+    </script>
+</body>
+</html>

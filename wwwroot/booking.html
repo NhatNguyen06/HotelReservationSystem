@@ -1,0 +1,131 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Đặt phòng</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="navbar"></div>
+    <div class="container" style="max-width: 640px;">
+        <h3 class="mb-3">Đặt phòng</h3>
+        <div id="alertBox"></div>
+        <div id="content"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script>
+
+// @ts-nocheck
+
+            renderNavbar();
+
+            const params = new URLSearchParams(location.search);
+            const roomId = parseInt(params.get('roomId'));
+            const checkIn = params.get('checkIn');
+            const checkOut = params.get('checkOut');
+            const guests = parseInt(params.get('guests')) || 1;
+            let timer = null;
+
+            // Bước 1: hiện thông tin để khách xác nhận
+            async function showSummary() {
+                try {
+                    const room = await apiFetch(`/api/rooms/${roomId}`);
+                    const a = await apiFetch(`/api/rooms/${roomId}/availability?checkIn=${checkIn}&checkOut=${checkOut}`);
+
+                    if (!a.available) {
+                        document.getElementById('content').innerHTML =
+                            '<div class="alert alert-warning">Phòng không còn trống trong thời gian này. <a href="/">Chọn phòng khác</a></div>';
+                        return;
+                    }
+
+                    document.getElementById('content').innerHTML = `
+                        <div class="card card-body">
+                            <h5>${esc(room.roomTypeName)} - Phòng ${esc(room.roomNumber)}</h5>
+                            <table class="table table-borderless w-auto mb-3">
+                                <tr><td>Nhận phòng</td><td><b>${esc(checkIn)}</b></td></tr>
+                                <tr><td>Trả phòng</td><td><b>${esc(checkOut)}</b></td></tr>
+                                <tr><td>Số đêm</td><td>${a.nights}</td></tr>
+                                <tr><td>Số khách</td><td>${guests}</td></tr>
+                                <tr><td>Tổng tiền</td><td class="fs-5 fw-bold">${a.totalPrice.toLocaleString('vi-VN')} đ</td></tr>
+                            </table>
+                            <div>
+                                <button class="btn btn-primary" onclick="confirmBooking()">Xác nhận đặt phòng</button>
+                                <a class="btn btn-outline-secondary" href="/room-detail.html?id=${roomId}&checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}">Hủy</a>
+                            </div>
+                        </div>`;
+                } catch (e) {
+                    showAlert(e.message, 'danger');
+                }
+            }
+
+            // Bước 2: tạo booking Pending (giữ phòng 15 phút)
+            async function confirmBooking() {
+                try {
+                    const r = await apiFetch('/api/reservations', {
+                        method: 'POST',
+                        body: JSON.stringify({ roomId, checkIn, checkOut, guests })
+                    });
+                    showHold(r);
+                } catch (e) {
+                    showAlert(e.message, 'danger');
+                }
+            }
+
+            function showHold(r) {
+                document.getElementById('alertBox').innerHTML = '';
+                document.getElementById('content').innerHTML = `
+                    <div class="card card-body">
+                        <div class="alert alert-info">Phòng đang được giữ cho bạn. Vui lòng thanh toán trước khi hết giờ.</div>
+                        <p>Mã đặt phòng: <b>${esc(r.bookingCode)}</b></p>
+                        <p>Số tiền: <b>${r.totalCost.toLocaleString('vi-VN')} đ</b></p>
+                        <p>Thời gian còn lại: <b id="countdown" class="text-danger"></b></p>
+                        <div>
+                            <a class="btn btn-success" href="/payment.html?reservationId=${r.id}">Tiếp tục thanh toán</a>
+                        </div>
+                    </div>`;
+
+                const end = new Date(r.holdExpiresAt).getTime();
+                clearInterval(timer);
+                timer = setInterval(() => {
+                    const left = Math.floor((end - Date.now()) / 1000);
+                    if (left <= 0) {
+                        clearInterval(timer);
+                        document.getElementById('content').innerHTML =
+                            '<div class="alert alert-danger">Đã hết thời gian giữ phòng. <a href="/">Vui lòng đặt lại</a></div>';
+                        return;
+                    }
+                    document.getElementById('countdown').textContent =
+                        String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0');
+                }, 1000);
+            }
+
+
+            // Bước 3: màn hình xác nhận
+            function showConfirmation(r) {
+                document.getElementById('alertBox').innerHTML = '';
+                document.getElementById('content').innerHTML = `
+                    <div class="card card-body text-center">
+                        <h4 class="text-success">Đặt phòng thành công!</h4>
+                        <p class="mb-1">Mã đặt phòng của bạn</p>
+                        <p class="display-6 fw-bold">${esc(r.bookingCode)}</p>
+                        <p>${esc(r.roomTypeName)} - Phòng ${esc(r.roomNumber)}<br>
+                           ${esc(r.checkIn)} → ${esc(r.checkOut)} (${r.nights} đêm)<br>
+                           Tổng tiền: <b>${r.totalCost.toLocaleString('vi-VN')} đ</b></p>
+                        <a class="btn btn-primary" href="/my-bookings.html">Xem booking của tôi</a>
+                    </div>`;
+            }
+
+            if (requireRole(['Customer'])) {
+                if (!roomId || !checkIn || !checkOut) {
+                    document.getElementById('content').innerHTML = '<div class="alert alert-warning">Thiếu thông tin đặt phòng. <a href="/">Quay lại tìm phòng</a></div>';
+                } else {
+                    showSummary();
+                }
+            }
+    </script>
+</body>
+</html>

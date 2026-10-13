@@ -1,0 +1,80 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chi tiết phòng</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="navbar"></div>
+
+    <div class="container">
+        <a href="/" class="btn btn-link ps-0">&larr; Quay lại tìm phòng</a>
+        <div id="alertBox"></div>
+        <div id="content"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script>
+                    // @ts-nocheck
+                    renderNavbar();
+                    const params = new URLSearchParams(window.location.search);
+                    const id = params.get('id');
+                    const checkIn = params.get('checkIn');
+                    const checkOut = params.get('checkOut');
+                    const guests = params.get('guests');
+                    function bookButton(available) {
+                    if (!available) return '';
+                    const user = getUser();
+                    if (!user) {
+                        return '<div class="mt-3"><a class="btn btn-primary" href="/login.html">Đăng nhập để đặt phòng</a></div>';
+                    }
+                    if (user.role !== 'Customer') {
+                        return '<div class="mt-3 text-muted">Chỉ tài khoản khách hàng mới đặt phòng trực tuyến.</div>';
+                    }
+                    return `<div class="mt-3"><a class="btn btn-primary"
+                href="/booking.html?roomId=${id}&checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests || 1}">Đặt phòng</a></div>`;
+}
+                    async function loadRoom() {
+                        try {
+                            const room = await apiFetch(`/api/rooms/${id}`);
+
+                            let availabilityHtml = '<p class="text-muted">Chọn ngày ở trang tìm phòng để kiểm tra phòng trống.</p>';
+                            if (checkIn && checkOut) {
+                                try {
+                                    const a = await apiFetch(`/api/rooms/${id}/availability?checkIn=${checkIn}&checkOut=${checkOut}`);
+                                    availabilityHtml = `
+            <p>Thời gian: <b>${checkIn}</b> → <b>${checkOut}</b> (${a.nights} đêm)</p>
+            <p>Tổng tiền: <b>${a.totalPrice.toLocaleString('vi-VN')} đ</b></p>
+            ${a.available
+                                            ? '<span class="badge bg-success fs-6">Còn phòng</span>'
+                                            : '<span class="badge bg-danger fs-6">Đã hết phòng trong thời gian này</span>'}
+            ${bookButton(a.available)}`;
+                                } catch (e) {
+                                    availabilityHtml = `<div class="alert alert-warning">${esc(e.message)}</div>`;
+                                }
+                            }
+
+                            document.getElementById('content').innerHTML = `
+                                <div class="card card-body">
+                                    <h3>${room.roomTypeName} - Phòng ${room.roomNumber}</h3>
+                                    <table class="table table-borderless w-auto">
+                                        <tr><td>Giá mỗi đêm</td><td><b>${room.basePrice.toLocaleString('vi-VN')} đ</b></td></tr>
+                                        <tr><td>Sức chứa</td><td>${room.capacity} khách</td></tr>
+                                        <tr><td>Tiện nghi</td><td>${room.amenities}</td></tr>
+                                    </table>
+                                    <hr>
+                                    ${availabilityHtml}
+                                </div>`;
+                        } catch (e) {
+                            showAlert(e.message, 'danger');
+                        }
+                    }
+
+                    loadRoom();
+    </script>
+</body>
+</html>

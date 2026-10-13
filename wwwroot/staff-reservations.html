@@ -1,0 +1,440 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý đặt phòng</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Khi bấm In, chỉ in phần hóa đơn */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+
+            #invoiceArea, #invoiceArea * {
+                visibility: visible;
+            }
+
+            #invoiceArea {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="navbar"></div>
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3 class="mb-0">Quản lý đặt phòng</h3>
+            <button class="btn btn-primary" onclick="openEdit(null)">+ Tạo booking cho khách tại quầy</button>
+        </div>
+        <div id="alertBox"></div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-3"><input id="fCode" class="form-control" placeholder="Mã booking"></div>
+            <div class="col-md-3"><input id="fGuest" class="form-control" placeholder="Tên hoặc số điện thoại khách"></div>
+            <div class="col-md-2"><input id="fDate" type="date" class="form-control" title="Booking đang ở trong ngày này"></div>
+            <div class="col-md-2">
+                <select id="fStatus" class="form-select">
+                    <option value="">Mọi trạng thái</option>
+                    <option value="Confirmed">Đã xác nhận</option>
+                    <option value="CheckedIn">Đang ở</option>
+                    <option value="CheckedOut">Đã trả phòng</option>
+                    <option value="Pending">Chờ thanh toán</option>
+                    <option value="Cancelled">Đã hủy</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button class="btn btn-secondary flex-fill" onclick="load()">Tìm</button>
+                <button class="btn btn-outline-secondary" onclick="resetFilter()">Xóa</button>
+            </div>
+        </div>
+
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-light">
+                <tr><th>Mã</th><th>Khách</th><th>Phòng</th><th>Nhận</th><th>Trả</th><th>Tổng / Đã trả</th><th>Trạng thái</th><th></th></tr>
+            </thead>
+            <tbody id="table"></tbody>
+        </table>
+        <div id="emptyMsg" class="text-muted"></div>
+    </div>
+
+    <!-- Tạo / sửa booking -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editTitle"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="eAlert"></div>
+                    <input type="hidden" id="eId">
+                    <div class="row g-2">
+                        <div class="col-7"><label class="form-label">Họ tên khách</label><input id="eName" class="form-control"></div>
+                        <div class="col-5"><label class="form-label">Số điện thoại</label><input id="ePhone" class="form-control" placeholder="0901234567"></div>
+                        <div class="col-4"><label class="form-label">Nhận phòng</label><input id="eCheckIn" type="date" class="form-control" onchange="reloadRooms()"></div>
+                        <div class="col-4"><label class="form-label">Trả phòng</label><input id="eCheckOut" type="date" class="form-control" onchange="reloadRooms()"></div>
+                        <div class="col-4"><label class="form-label">Số khách</label><input id="eGuests" type="number" min="1" max="10" class="form-control" onchange="reloadRooms()"></div>
+                        <div class="col-12">
+                            <label class="form-label">Phòng</label><select id="eRoom" class="form-select"></select>
+                            <div class="form-text">Danh sách tự cập nhật theo ngày và số khách.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button class="btn btn-primary" onclick="saveReservation()">Lưu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Check-in -->
+    <div class="modal fade" id="checkInModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Check-in</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="ciAlert"></div>
+                    <input type="hidden" id="ciId">
+                    <div id="ciInfo" class="mb-3"></div>
+                    <div class="mb-3">
+                        <label class="form-label">Phòng sẽ nhận</label>
+                        <select id="ciRoom" class="form-select"></select>
+                        <div class="form-text">Nếu phòng đã gán chưa sẵn sàng, chọn phòng tương đương trong danh sách.</div>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="ciIdentity">
+                        <label class="form-check-label" for="ciIdentity">Đã đối chiếu giấy tờ tùy thân với thông tin booking</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button class="btn btn-success" onclick="confirmCheckIn()">Xác nhận check-in</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Check-out -->
+    <div class="modal fade" id="checkOutModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Check-out</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="coAlert"></div>
+                    <input type="hidden" id="coId">
+                    <div id="coInfo" class="mb-3"></div>
+                    <div id="coLate" class="alert alert-warning d-none"></div>
+                    <div class="row g-2">
+                        <div class="col-5">
+                            <label class="form-label">Phí phát sinh (đ)</label>
+                            <input id="coExtra" type="number" min="0" value="0" class="form-control" oninput="recalc()">
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Ghi chú phí</label>
+                            <input id="coNote" class="form-control" placeholder="Hư hỏng, minibar, trả phòng muộn...">
+                        </div>
+                    </div>
+                    <div id="coSummary" class="mt-3 p-2 bg-light border rounded"></div>
+                    <div id="coCollectBox" class="mt-3 d-none">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-6">
+                                <select id="coMethod" class="form-select">
+                                    <option value="Cash">Tiền mặt</option>
+                                    <option value="CreditCard">Thẻ</option>
+                                    <option value="EWallet">Ví điện tử</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="coCollect">
+                                    <label class="form-check-label" for="coCollect">Đã thu phần còn lại</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button class="btn btn-success" onclick="confirmCheckOut()">Hoàn tất check-out</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hóa đơn -->
+    <div class="modal fade" id="invoiceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-body"><div id="invoiceArea"></div></div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" onclick="window.print()">In hóa đơn</button>
+                    <button class="btn btn-primary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/auth.js"></script>
+    <script>
+    // @ts-nocheck
+    renderNavbar();
+
+    const val = id => document.getElementById(id).value;
+    const money = n => Number(n).toLocaleString('vi-VN') + ' đ';
+    const modalAlert = (id, msg) => document.getElementById(id).innerHTML = msg ? `<div class="alert alert-danger">${esc(msg)}</div>` : '';
+
+    const statusInfo = {
+        Pending: ['warning', 'Chờ thanh toán'], Confirmed: ['success', 'Đã xác nhận'],
+        CheckedIn: ['primary', 'Đang ở'], CheckedOut: ['secondary', 'Đã trả phòng'],
+        Cancelled: ['danger', 'Đã hủy'], Expired: ['dark', 'Hết hạn giữ phòng']
+    };
+
+    let list = [], preview = null;
+    let editModal, checkInModal, checkOutModal, invoiceModal;
+
+    function toDateString(d) {
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+    const find = id => list.find(x => x.id === id);
+
+    // ---------- Danh sách và bộ lọc ----------
+    async function load() {
+        const qs = new URLSearchParams();
+        if (val('fCode')) qs.set('code', val('fCode'));
+        if (val('fGuest')) qs.set('guest', val('fGuest'));
+        if (val('fDate')) qs.set('date', val('fDate'));
+        if (val('fStatus')) qs.set('status', val('fStatus'));
+        try {
+            list = await apiFetch('/api/staff/reservations?' + qs);
+            document.getElementById('emptyMsg').textContent =
+                list.length ? '' : 'Không tìm thấy booking nào. Vui lòng kiểm tra lại thông tin tìm kiếm.';
+            document.getElementById('table').innerHTML = list.map(b => {
+                const [color, label] = statusInfo[b.status] || ['secondary', b.status];
+                return `<tr>
+                    <td>${esc(b.bookingCode)}${b.isOnline ? '' : '<br><span class="badge bg-info">Tại quầy</span>'}</td>
+                    <td>${esc(b.guestName)}<br><span class="text-muted small">${esc(b.guestPhone)}</span></td>
+                    <td>${esc(b.roomNumber)}<br><span class="text-muted small">${esc(b.roomTypeName)}</span></td>
+                    <td>${esc(b.checkIn)}</td><td>${esc(b.checkOut)}</td>
+                    <td>${money(b.totalCost)}<br><span class="text-muted small">Đã trả: ${money(b.paidAmount)}</span></td>
+                    <td><span class="badge bg-${color}">${label}</span></td>
+                    <td class="text-nowrap">
+                        ${b.canCheckIn ? `<button class="btn btn-sm btn-success" onclick="openCheckIn(${b.id})">Check-in</button>` : ''}
+                        ${b.canCheckOut ? `<button class="btn btn-sm btn-warning" onclick="openCheckOut(${b.id})">Check-out</button>` : ''}
+                        ${b.hasInvoice ? `<button class="btn btn-sm btn-outline-dark" onclick="viewInvoice(${b.id})">Hóa đơn</button>` : ''}
+                        ${b.canEdit ? `<button class="btn btn-sm btn-outline-primary" onclick="openEdit(${b.id})">Sửa</button>` : ''}
+                        ${b.canCancel ? `<button class="btn btn-sm btn-outline-danger" onclick="cancelBooking(${b.id})">Hủy</button>` : ''}
+                    </td></tr>`;
+            }).join('');
+        } catch (e) { showAlert(e.message, 'danger'); }
+    }
+
+    function resetFilter() {
+        ['fCode', 'fGuest', 'fDate', 'fStatus'].forEach(id => document.getElementById(id).value = '');
+        load();
+    }
+
+    async function cancelBooking(id) {
+        const reason = prompt('Lý do hủy (có thể bỏ trống):');
+        if (reason === null) return;     // UC-011 A3: không hủy
+        try {
+            await apiFetch(`/api/staff/reservations/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) });
+            showAlert('Đã hủy booking');
+            load();
+        } catch (e) { showAlert(e.message, 'danger'); }
+    }
+
+    // ---------- Tạo / sửa ----------
+    async function openEdit(id) {
+        const today = new Date(), tomorrow = new Date();
+        tomorrow.setDate(today.getDate() + 1);
+        const b = id ? find(id) : null;
+
+        document.getElementById('editTitle').textContent = b ? `Sửa booking ${b.bookingCode}` : 'Tạo booking cho khách tại quầy';
+        document.getElementById('eId').value = id || '';
+        document.getElementById('eName').value = b ? b.guestName : '';
+        document.getElementById('ePhone').value = b ? b.guestPhone : '';
+        document.getElementById('eCheckIn').value = b ? b.checkIn : toDateString(today);
+        document.getElementById('eCheckOut').value = b ? b.checkOut : toDateString(tomorrow);
+        document.getElementById('eGuests').value = b ? b.guests : 2;
+        modalAlert('eAlert', '');
+        editModal.show();
+        await reloadRooms(b ? { id: b.roomId, label: `${b.roomNumber} - ${b.roomTypeName} (phòng hiện tại)` } : null, b ? b.roomId : null);
+    }
+
+    // Phòng đang được booking này giữ sẽ không xuất hiện trong kết quả tìm, nên thêm lại thủ công
+    async function reloadRooms(current, selectedId) {
+        const sel = document.getElementById('eRoom');
+        const keep = selectedId || sel.value;
+        if (!current && sel.dataset.current) current = JSON.parse(sel.dataset.current);
+        if (current) sel.dataset.current = JSON.stringify(current); else delete sel.dataset.current;
+        try {
+            const rooms = await apiFetch(`/api/rooms/search?checkIn=${val('eCheckIn')}&checkOut=${val('eCheckOut')}&guests=${val('eGuests')}`);
+            const opts = rooms.map(r => ({ id: r.id, label: `${r.roomNumber} - ${r.roomTypeName} (${r.basePrice.toLocaleString('vi-VN')} đ/đêm)` }));
+            if (current && !opts.some(o => o.id === current.id)) opts.unshift(current);
+            sel.innerHTML = opts.length
+                ? opts.map(o => `<option value="${o.id}">${esc(o.label)}</option>`).join('')
+                : '<option value="">Không có phòng trống</option>';
+            if (keep && opts.some(o => o.id == keep)) sel.value = keep;
+            modalAlert('eAlert', '');
+        } catch (e) { sel.innerHTML = ''; modalAlert('eAlert', e.message); }
+    }
+
+    async function saveReservation() {
+        const id = val('eId');
+        const body = {
+            guestName: val('eName'), guestPhone: val('ePhone'), roomId: parseInt(val('eRoom')) || 0,
+            checkIn: val('eCheckIn'), checkOut: val('eCheckOut'), guests: parseInt(val('eGuests')) || 0
+        };
+        try {
+            await apiFetch(id ? `/api/staff/reservations/${id}` : '/api/staff/reservations',
+                { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+            editModal.hide();
+            showAlert(id ? 'Đã cập nhật booking' : 'Đã tạo booking');
+            load();
+        } catch (e) { modalAlert('eAlert', e.message); }
+    }
+
+    // ---------- Check-in ----------
+    async function openCheckIn(id) {
+        const b = find(id);
+        document.getElementById('ciId').value = id;
+        document.getElementById('ciIdentity').checked = false;
+        modalAlert('ciAlert', '');
+        document.getElementById('ciInfo').innerHTML = `
+            <p class="mb-1">Booking <b>${esc(b.bookingCode)}</b> - Khách: <b>${esc(b.guestName)}</b> (${esc(b.guestPhone)})</p>
+            <p class="mb-1">${esc(b.checkIn)} → ${esc(b.checkOut)} (${b.nights} đêm), ${b.guests} khách</p>
+            <p class="mb-0">Đã thanh toán: <b>${money(b.paidAmount)}</b> / ${money(b.totalCost)}</p>`;
+        document.getElementById('ciRoom').innerHTML = `<option value="">Giữ phòng đã gán: ${esc(b.roomNumber)} (${esc(b.roomTypeName)})</option>`;
+        checkInModal.show();
+        try {
+            const alts = await apiFetch(`/api/staff/reservations/${id}/alternative-rooms`);
+            document.getElementById('ciRoom').innerHTML += alts.map(r =>
+                `<option value="${r.id}">Đổi sang phòng ${esc(r.roomNumber)} (${esc(r.roomTypeName)})</option>`).join('');
+        } catch (e) { modalAlert('ciAlert', e.message); }
+    }
+
+    async function confirmCheckIn() {
+        const id = val('ciId');
+        try {
+            await apiFetch(`/api/staff/reservations/${id}/check-in`, {
+                method: 'POST',
+                body: JSON.stringify({ identityVerified: document.getElementById('ciIdentity').checked, roomId: val('ciRoom') ? parseInt(val('ciRoom')) : null })
+            });
+            checkInModal.hide();
+            showAlert('Check-in thành công. Phòng chuyển sang trạng thái Occupied.');
+            load();
+        } catch (e) { modalAlert('ciAlert', e.message); }
+    }
+
+    // ---------- Check-out ----------
+    async function openCheckOut(id) {
+        const b = find(id);
+        modalAlert('coAlert', '');
+        try {
+            preview = await apiFetch(`/api/staff/reservations/${id}/checkout-preview`);
+        } catch (e) { showAlert(e.message, 'danger'); return; }
+
+        document.getElementById('coId').value = id;
+        document.getElementById('coExtra').value = 0;
+        document.getElementById('coNote').value = '';
+        document.getElementById('coCollect').checked = false;
+        document.getElementById('coInfo').innerHTML = `
+            <p class="mb-1">Booking <b>${esc(b.bookingCode)}</b> - Khách: <b>${esc(b.guestName)}</b></p>
+            <p class="mb-0">Phòng ${esc(b.roomNumber)}, ${esc(b.checkIn)} → ${esc(b.checkOut)} (${b.nights} đêm)</p>`;
+
+        const late = document.getElementById('coLate');
+        if (preview.isLate) {
+            late.classList.remove('d-none');
+            late.innerHTML = `Khách trả phòng muộn (quá ${esc(preview.standardCheckOutTime)}). Phụ thu gợi ý: <b>${money(preview.suggestedLateSurcharge)}</b>
+                <button class="btn btn-sm btn-warning ms-2" onclick="useSurcharge()">Áp dụng</button>`;
+        } else {
+            late.classList.add('d-none');
+        }
+        recalc();
+        checkOutModal.show();
+    }
+
+    function useSurcharge() {
+        document.getElementById('coExtra').value = preview.suggestedLateSurcharge;
+        document.getElementById('coNote').value = 'Phụ thu trả phòng muộn';
+        recalc();
+    }
+
+    function recalc() {
+        const extra = Number(val('coExtra')) || 0;
+        const total = preview.roomCharge + extra;
+        const balance = total - preview.paidAmount;
+        document.getElementById('coSummary').innerHTML = `
+            Tiền phòng: <b>${money(preview.roomCharge)}</b><br>
+            Phí phát sinh: <b>${money(extra)}</b><br>
+            Tổng cộng: <b>${money(total)}</b> · Đã thanh toán: <b>${money(preview.paidAmount)}</b><br>
+            ${balance > 0 ? `<span class="text-danger fw-bold">Còn phải thu: ${money(balance)}</span>`
+              : balance < 0 ? `<span class="text-primary">Khách đã trả dư ${money(-balance)} (hoàn lại thủ công)</span>`
+              : '<span class="text-success">Đã thanh toán đủ</span>'}`;
+        document.getElementById('coCollectBox').classList.toggle('d-none', balance <= 0);
+    }
+
+    async function confirmCheckOut() {
+        const id = val('coId');
+        try {
+            const inv = await apiFetch(`/api/staff/reservations/${id}/check-out`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    extraCharge: Number(val('coExtra')) || 0, extraChargeNote: val('coNote'),
+                    collectBalance: document.getElementById('coCollect').checked, balanceMethod: val('coMethod')
+                })
+            });
+            checkOutModal.hide();
+            showInvoice(inv);
+            load();
+        } catch (e) { modalAlert('coAlert', e.message); }
+    }
+
+    // ---------- Hóa đơn ----------
+    async function viewInvoice(id) {
+        try { showInvoice(await apiFetch(`/api/staff/reservations/${id}/invoice`)); }
+        catch (e) { showAlert(e.message, 'danger'); }
+    }
+
+    function showInvoice(i) {
+        document.getElementById('invoiceArea').innerHTML = `
+            <h4 class="text-center">HÓA ĐƠN</h4>
+            <p class="text-center text-muted mb-3">${esc(i.invoiceNumber)} · ${new Date(i.issuedAt).toLocaleString('vi-VN')}</p>
+            <p class="mb-1">Khách hàng: <b>${esc(i.guestName)}</b> · Mã booking: <b>${esc(i.bookingCode)}</b></p>
+            <p>Phòng ${esc(i.roomNumber)} (${esc(i.roomTypeName)}) · ${esc(i.checkIn)} → ${esc(i.checkOut)} (${i.nights} đêm)</p>
+            <table class="table table-sm">
+                <tr><td>Tiền phòng</td><td class="text-end">${money(i.roomCharge)}</td></tr>
+                <tr><td>Phí phát sinh${i.extraChargeNote ? ' (' + esc(i.extraChargeNote) + ')' : ''}</td><td class="text-end">${money(i.extraCharge)}</td></tr>
+                <tr class="fw-bold"><td>Tổng cộng</td><td class="text-end">${money(i.total)}</td></tr>
+                <tr><td>Đã thanh toán trước</td><td class="text-end">${money(i.paidBefore)}</td></tr>
+                <tr><td>Thu khi check-out</td><td class="text-end">${money(i.paidAtCheckout)}</td></tr>
+                ${i.refundDue > 0 ? `<tr><td>Cần hoàn lại cho khách</td><td class="text-end">${money(i.refundDue)}</td></tr>` : ''}
+            </table>`;
+        invoiceModal.show();
+    }
+
+    if (requireRole(['Staff', 'Manager'])) {
+        editModal = new bootstrap.Modal(document.getElementById('editModal'));
+        checkInModal = new bootstrap.Modal(document.getElementById('checkInModal'));
+        checkOutModal = new bootstrap.Modal(document.getElementById('checkOutModal'));
+        invoiceModal = new bootstrap.Modal(document.getElementById('invoiceModal'));
+        load();
+    }
+    </script>
+</body>
+</html>
